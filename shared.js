@@ -27,8 +27,15 @@ function randInt(max) {
   return (buf[0] % max) + 1;
 }
 
-// D&D-style ability modifier: 10 → 0, 16 → +3, 7 → −2
-export const statMod = v => Math.floor((v - 10) / 2);
+// D&D-style ability modifier: 10 → 0, 16 → +3, 7 → −2.
+// With round, halves go away from zero instead: 15 → +3, 9 → −1, 7 → −2.
+export const statMod = (v, round = false) => {
+  const half = (v - 10) / 2;
+  return round ? Math.sign(half) * Math.round(Math.abs(half)) : Math.floor(half);
+};
+// Value a stat adds to a roll for the chosen mode
+export const statAdd = (v, mode) =>
+  mode === "raw" ? v : mode === "minus10" ? v - 10 : statMod(v, mode === "modRound");
 
 // "+1d4", "-2", "1d6+1", "-1d4 + 3", "+@힘" → [{sign, count, sides}|{sign, flat}|{sign, stat}]
 export function parseExpr(text) {
@@ -105,7 +112,7 @@ export function roll(setup) {
     const name = setup.stats.find(s => s.name.toLowerCase() === picked).name;
     if (setup.statMode === "target") { target = value; rule = "le"; stat = { name, value, add: 0, mode: "target" }; }
     else {
-      const add = setup.statMode === "raw" ? value : statMod(value);
+      const add = statAdd(value, setup.statMode);
       total += add;
       stat = { name, value, add, mode: setup.statMode };
     }
@@ -161,7 +168,7 @@ export function describe(r) {
     const sign = p.sign < 0 ? "−" : i ? "+" : "";
     bits.push(`${i ? ` ${sign} ` : sign}${p.label}[${p.values.join(",")}]`);
   });
-  if (r.stat && r.stat.mode !== "target") bits.push(` ${r.stat.add < 0 ? "−" : "+"} ${r.stat.name}${r.stat.mode === "mod" ? `(${r.stat.value})` : ""} ${Math.abs(r.stat.add)}`);
+  if (r.stat && r.stat.mode !== "target") bits.push(` ${r.stat.add < 0 ? "−" : "+"} ${r.stat.name}${r.stat.mode !== "raw" ? `(${r.stat.value})` : ""} ${Math.abs(r.stat.add)}`);
   for (const b of r.bonuses) bits.push(` ${b.sum < 0 ? "−" : "+"} ${b.name} ${Math.abs(b.sum)}`);
   if (r.flat) bits.push(` ${r.flat < 0 ? "−" : "+"} ${Math.abs(r.flat)}`);
   return bits.join("").trim();

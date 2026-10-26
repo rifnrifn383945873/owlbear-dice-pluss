@@ -163,7 +163,9 @@ input[type=number] { width: 64px; }
     <label for="useStat">능력치</label>
     <select id="useStat" aria-label="적용할 능력치"></select>
     <select id="statMode" aria-label="능력치 적용 방식">
-      <option value="mod">보정치로 더하기 (D&amp;D)</option>
+      <option value="minus10">보정치로 더하기 (능력치 − 10)</option>
+      <option value="mod">보정치로 더하기 (D&amp;D, 내림)</option>
+      <option value="modRound">보정치로 더하기 (반올림)</option>
       <option value="raw">값 그대로 더하기</option>
       <option value="target">목표값으로 쓰기 (CoC)</option>
     </select>
@@ -196,7 +198,7 @@ input[type=number] { width: 64px; }
 </div>
 
 <script type="module">
-import { loadOBR, CHANNEL, SIDES, parseExpr, formatTerms, roll, describe, verdictText, readHistory, pushHistory, historyKey, statMod, statMap } from "./shared.js?v=1.0.3";
+import { loadOBR, CHANNEL, SIDES, parseExpr, formatTerms, roll, describe, verdictText, readHistory, pushHistory, historyKey, statAdd, statMap } from "./shared.js?v=1.0.5";
 
 const $ = id => document.getElementById(id);
 const PREF = "dicePlus:setup";
@@ -210,7 +212,7 @@ const state = {
   pool: Object.fromEntries(SIDES.map(s => [s, { plus: s === 20 ? 1 : 0, minus: 0 }])),
   mode: "normal", flat: 0, bonuses: DEFAULT_BONUSES, target: "", rule: "ge", label: "", secret: false,
   stats: ["힘", "민첩", "건강", "지능", "지혜", "매력"].map(name => ({ name, value: 10 })),
-  useStat: "", statMode: "mod",
+  useStat: "", statMode: "minus10",
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem(PREF) || "{}")); } catch (e) {}
 for (const s of SIDES) state.pool[s] = { plus: 0, minus: 0, ...(state.pool[s] || {}) };
@@ -247,7 +249,7 @@ document.querySelectorAll(".seg button").forEach(b => b.onclick = () => { state.
 
 // ---- stats (editable any time; rolls read the current values)
 const signed = n => (n < 0 ? "−" : "+") + Math.abs(n);
-const statHint = v => state.statMode === "mod" ? signed(statMod(v)) : "";
+const statHint = v => ["minus10", "mod", "modRound"].includes(state.statMode) ? signed(statAdd(Number(v) || 0, state.statMode)) : "";
 function renderStats() {
   const box = $("stats");
   box.replaceChildren();
@@ -344,7 +346,7 @@ function formula() {
   const stats = statMap(state.stats);
   const s = state.stats.find(x => x.name === state.useStat);
   if (s && state.statMode !== "target") {
-    const add = state.statMode === "raw" ? Number(s.value) || 0 : statMod(Number(s.value) || 0);
+    const add = statAdd(Number(s.value) || 0, state.statMode);
     terms.push({ sign: add < 0 ? -1 : 1, flat: Math.abs(add), label: s.name });
   }
   for (const b of state.bonuses.filter(b => b.on)) {

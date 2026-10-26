@@ -1,15 +1,15 @@
 {
   "name": "주사위+ (상태 보너스 판정)",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "manifest_version": 1,
   "description": "주사위를 더하거나 빼고, 상태 보너스를 켜고 끄며 중첩하고, 목표값으로 성공·실패를 판정합니다.",
   "icon": "https://rifnrifn383945873.github.io/owlbear-dice-pluss/icon.svg",
   "author": "jangjiyul",
-  "background_url": "https://rifnrifn383945873.github.io/owlbear-dice-pluss/background.html?v=1.0.3",
+  "background_url": "https://rifnrifn383945873.github.io/owlbear-dice-pluss/background.html?v=1.0.5",
   "action": {
     "title": "주사위+",
     "icon": "https://rifnrifn383945873.github.io/owlbear-dice-pluss/icon.svg",
-    "popover": "https://rifnrifn383945873.github.io/owlbear-dice-pluss/index.html?v=1.0.3",
+    "popover": "https://rifnrifn383945873.github.io/owlbear-dice-pluss/index.html?v=1.0.5",
     "width": 760,
     "height": 700
   }
