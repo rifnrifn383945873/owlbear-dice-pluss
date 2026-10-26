@@ -19,7 +19,18 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 "Roboto", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
-body { padding: 10px 12px 16px; display: grid; gap: 10px; }
+body { padding: 10px 12px 12px; display: grid; gap: 10px; }
+.col { display: grid; gap: 10px; align-content: start; min-width: 0; }
+/* Wide popover: two columns that fill the window, history takes the leftover height */
+@media (min-width: 640px) {
+  html, body { height: 100%; }
+  body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; overflow: hidden; }
+  .col { overflow-y: auto; }
+  .col.right { display: flex; flex-direction: column; }
+  .col.right > * { flex: none; }
+  .col.right .histbox { flex: 1 1 120px; min-height: 120px; grid-template-rows: auto minmax(0, 1fr); }
+  .col.right .hist { max-height: none; }
+}
 h2 { margin: 0; font-size: 11px; letter-spacing: .06em; color: var(--muted); font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 h2 small { font-weight: 400; letter-spacing: 0; }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; display: grid; gap: 7px; }
@@ -102,6 +113,7 @@ input[type=number] { width: 64px; }
 </head>
 <body>
 
+<div class="col left">
 <section aria-labelledby="t-pool">
   <h2 id="t-pool"><span>주사위</span>
     <span class="seg" role="group" aria-label="d20 굴림 방식">
@@ -126,6 +138,10 @@ input[type=number] { width: 64px; }
   <div class="err" id="sErr" role="alert"></div>
 </section>
 
+<section class="result" id="result" hidden aria-live="polite"></section>
+</div>
+
+<div class="col right">
 <section aria-labelledby="t-bonus">
   <h2 id="t-bonus"><span>상태 보너스</span><small id="bonusSum"></small></h2>
   <div class="bonuses" id="bonuses"></div>
@@ -173,15 +189,14 @@ input[type=number] { width: 64px; }
   <button type="button" class="ghost" id="resetBtn" title="주사위 개수와 보정치를 0으로">초기화</button>
 </div>
 
-<section class="result" id="result" hidden aria-live="polite"></section>
-
-<section aria-labelledby="t-hist">
+<section class="histbox" aria-labelledby="t-hist">
   <h2 id="t-hist"><span>굴림 기록</span><small id="where"></small></h2>
   <div class="hist" id="hist"></div>
 </section>
+</div>
 
 <script type="module">
-import { loadOBR, CHANNEL, SIDES, parseExpr, formatTerms, roll, describe, verdictText, readHistory, pushHistory, historyKey, statMod, statMap } from "./shared.js?v=1.0.2";
+import { loadOBR, CHANNEL, SIDES, parseExpr, formatTerms, roll, describe, verdictText, readHistory, pushHistory, historyKey, statMod, statMap } from "./shared.js?v=1.0.3";
 
 const $ = id => document.getElementById(id);
 const PREF = "dicePlus:setup";
