@@ -1,0 +1,16 @@
+{
+  "name": "주사위+ (상태 보너스 판정)",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "description": "주사위를 더하거나 빼고, 상태 보너스를 켜고 끄며 중첩하고, 목표값으로 성공·실패를 판정합니다.",
+  "icon": "/icon.svg",
+  "author": "jangjiyul",
+  "background_url": "/background.html",
+  "action": {
+    "title": "주사위+",
+    "icon": "/icon.svg",
+    "popover": "/index.html",
+    "width": 380,
+    "height": 640
+  }
+}

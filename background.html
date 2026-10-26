@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>주사위+ background</title></head>
+<body>
+<script type="module">
+// Runs for every player while the room is open: records every shared roll and
+// pops a notification for rolls made by other players.
+import { loadOBR, CHANNEL, pushHistory, describe, verdictText } from "./shared.js";
+
+const OBR = await loadOBR();
+if (OBR) {
+  const me = await OBR.player.getId();
+  OBR.broadcast.onMessage(CHANNEL, async ({ data }) => {
+    if (!data || !data.record) return;
+    pushHistory(OBR.room.id, data.record);
+    if (data.playerId === me) return;
+    const r = data.record;
+    const head = `${data.playerName}${r.label ? ` · ${r.label}` : ""}: ${r.total}`;
+    const tail = verdictText(r);
+    try {
+      await OBR.notification.show(`🎲 ${head}${tail ? ` (${tail})` : ""} — ${describe(r)}`.slice(0, 180),
+        r.verdict === "실패" || r.crit === "대실패" ? "WARNING" : r.verdict === "성공" || r.crit === "대성공" ? "SUCCESS" : "INFO");
+    } catch (e) {}
+  });
+}
+</script>
+</body>
+</html>

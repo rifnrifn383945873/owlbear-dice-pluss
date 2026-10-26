@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>주사위+</title>
+<style>
+/* Layout: compact popover — dice pool steppers, modifiers, status bonuses, target, roll button, then last result and history */
+:root {
+  --bg: #1e2231; --panel: #272c3f; --line: #3a4058; --fg: #e8eaf2; --muted: #9aa1b8;
+  --accent: #bb99ff; --accent-ink: #1a1328; --plus: #7fd1a8; --minus: #ff8f8f;
+  --ok: #7fd1a8; --bad: #ff8f8f; --crit: #ffd36b;
+}
+:root[data-mode="LIGHT"] {
+  --bg: #f4f4f8; --panel: #ffffff; --line: #d9dbe6; --fg: #1d2030; --muted: #61667d;
+  --accent: #6c3fd1; --accent-ink: #ffffff; --plus: #1f8a57; --minus: #c23b3b;
+  --ok: #1f8a57; --bad: #c23b3b; --crit: #a36b00;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 "Roboto", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+body { padding: 10px 12px 16px; display: grid; gap: 10px; }
+h2 { margin: 0; font-size: 11px; letter-spacing: .06em; color: var(--muted); font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+h2 small { font-weight: 400; letter-spacing: 0; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; display: grid; gap: 7px; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type=text], input[type=number], select {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; min-width: 0;
+}
+input[type=number] { width: 64px; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; gap: 2px; background: var(--bg); }
+.seg button { border: 0; background: transparent; border-radius: 999px; padding: 3px 11px; color: var(--muted); font-weight: 600; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.dice { display: grid; grid-template-columns: 44px 1fr 1fr; gap: 4px 8px; align-items: center; }
+.dice .hd { font-size: 11px; color: var(--muted); text-align: center; }
+.dice .hd.p { color: var(--plus); } .dice .hd.m { color: var(--minus); }
+.die { font-weight: 700; font-variant-numeric: tabular-nums; }
+.step { display: grid; grid-template-columns: 26px 1fr 26px; align-items: center; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--bg); }
+.step button { border: 0; background: transparent; height: 26px; font-size: 15px; line-height: 1; color: var(--muted); }
+.step button:hover { background: var(--line); color: var(--fg); }
+.step span { text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.step.p.on { border-color: var(--plus); } .step.p.on span { color: var(--plus); }
+.step.m.on { border-color: var(--minus); } .step.m.on span { color: var(--minus); }
+
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row label { color: var(--muted); }
+.grow { flex: 1 1 100px; }
+
+.bonuses { display: grid; gap: 4px; }
+.bonus { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center; padding: 3px 4px; border-radius: 6px; }
+.bonus:hover { background: var(--bg); }
+.bonus input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.bonus .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bonus .ex { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); }
+.bonus.off .nm, .bonus.off .ex { opacity: .5; text-decoration: line-through; }
+.bonus .x { border: 0; background: transparent; color: var(--muted); font-size: 15px; padding: 0 4px; }
+.bonus .x:hover { color: var(--bad); }
+.add { display: grid; grid-template-columns: 1fr 84px auto; gap: 6px; }
+.err { color: var(--bad); font-size: 12px; min-height: 0; }
+.empty { color: var(--muted); font-size: 12px; }
+
+.formula { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); word-break: break-word; }
+.actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.roll { border: 0; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 15px; padding: 10px; }
+.roll:disabled { opacity: .45; cursor: not-allowed; }
+.ghost { border: 1px solid var(--line); background: transparent; border-radius: 9px; padding: 0 12px; color: var(--muted); }
+.ghost:hover { color: var(--fg); }
+
+.result { display: grid; gap: 3px; }
+.result .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.result .total { font-size: 34px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.verdict { font-weight: 700; }
+.verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); } .verdict.crit { color: var(--crit); }
+.detail { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); word-break: break-word; }
+
+.hist { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
+.h { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.h:last-child { border-bottom: 0; }
+.h .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h .who i { font-style: normal; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.h .sum { font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; text-align: right; }
+.h .detail, .h .vd { grid-column: 1 / -1; }
+.h .vd { font-size: 12px; }
+.note { font-size: 11.5px; color: var(--muted); margin: 0; }
+</style>
+</head>
+<body>
+
+<section aria-labelledby="t-pool">
+  <h2 id="t-pool"><span>주사위</span>
+    <span class="seg" role="group" aria-label="d20 굴림 방식">
+      <button type="button" data-mode="normal" aria-pressed="true">일반</button>
+      <button type="button" data-mode="adv" aria-pressed="false">유리</button>
+      <button type="button" data-mode="dis" aria-pressed="false">불리</button>
+    </span>
+  </h2>
+  <div class="dice" id="dice">
+    <span></span><span class="hd p">더하기 (+)</span><span class="hd m">빼기 (−)</span>
+  </div>
+</section>
+
+<section aria-labelledby="t-bonus">
+  <h2 id="t-bonus"><span>상태 보너스</span><small id="bonusSum"></small></h2>
+  <div class="bonuses" id="bonuses"></div>
+  <form class="add" id="addForm" autocomplete="off">
+    <input type="text" id="bName" placeholder="이름 (예: 축복)" maxlength="20" aria-label="보너스 이름">
+    <input type="text" id="bExpr" placeholder="+1d4, -2" maxlength="24" aria-label="보너스 값">
+    <button type="submit" class="ghost">추가</button>
+  </form>
+  <div class="err" id="bErr" role="alert"></div>
+  <div class="row">
+    <label for="flat">고정 보정치</label>
+    <input type="number" id="flat" value="0" step="1">
+  </div>
+</section>
+
+<section aria-labelledby="t-check">
+  <h2 id="t-check"><span>판정</span></h2>
+  <div class="row">
+    <label for="target">목표값</label>
+    <input type="number" id="target" placeholder="없음">
+    <select id="rule" aria-label="성공 조건">
+      <option value="ge">이상이면 성공</option>
+      <option value="le">이하면 성공</option>
+      <option value="none">판정 안 함</option>
+    </select>
+  </div>
+  <div class="row">
+    <input type="text" id="label" class="grow" placeholder="굴림 이름 (예: 공격, 은신)" maxlength="40" aria-label="굴림 이름">
+    <label><input type="checkbox" id="secret"> 나만 보기</label>
+  </div>
+</section>
+
+<div class="formula" id="formula" aria-live="polite"></div>
+<div class="actions">
+  <button type="button" class="roll" id="rollBtn">굴리기</button>
+  <button type="button" class="ghost" id="resetBtn" title="주사위 개수와 보정치를 0으로">초기화</button>
+</div>
+
+<section class="result" id="result" hidden aria-live="polite"></section>
+
+<section aria-labelledby="t-hist">
+  <h2 id="t-hist"><span>굴림 기록</span><small id="where"></small></h2>
+  <div class="hist" id="hist"></div>
+</section>
+
+<script type="module">
+import { loadOBR, CHANNEL, SIDES, parseExpr, formatTerms, roll, describe, verdictText, readHistory, pushHistory, historyKey } from "./shared.js";
+
+const $ = id => document.getElementById(id);
+const PREF = "dicePlus:setup";
+const DEFAULT_BONUSES = [
+  { name: "축복", expr: "+1d4", on: false },
+  { name: "중독", expr: "-2", on: false },
+];
+
+// ---- state
+const state = {
+  pool: Object.fromEntries(SIDES.map(s => [s, { plus: s === 20 ? 1 : 0, minus: 0 }])),
+  mode: "normal", flat: 0, bonuses: DEFAULT_BONUSES, target: "", rule: "ge", label: "", secret: false,
+};
+try { Object.assign(state, JSON.parse(localStorage.getItem(PREF) || "{}")); } catch (e) {}
+for (const s of SIDES) state.pool[s] = { plus: 0, minus: 0, ...(state.pool[s] || {}) };
+const save = () => { try { localStorage.setItem(PREF, JSON.stringify(state)); } catch (e) {} };
+
+let OBR = null, roomId = null, me = { id: "local", name: "나", color: "#bb99ff" };
+
+// ---- dice steppers
+function stepper(sides, kind) {
+  const wrap = document.createElement("div");
+  wrap.className = "step " + (kind === "plus" ? "p" : "m");
+  const dec = document.createElement("button"); dec.type = "button"; dec.textContent = "−";
+  const val = document.createElement("span");
+  const inc = document.createElement("button"); inc.type = "button"; inc.textContent = "+";
+  const word = kind === "plus" ? "더하는" : "빼는";
+  dec.setAttribute("aria-label", `${word} d${sides} 하나 줄이기`);
+  inc.setAttribute("aria-label", `${word} d${sides} 하나 늘리기`);
+  const set = n => { state.pool[sides][kind] = Math.max(0, Math.min(30, n)); render(); };
+  dec.onclick = () => set(state.pool[sides][kind] - 1);
+  inc.onclick = () => set(state.pool[sides][kind] + 1);
+  wrap.append(dec, val, inc);
+  wrap.update = () => { const n = state.pool[sides][kind]; val.textContent = n; wrap.classList.toggle("on", n > 0); };
+  return wrap;
+}
+const steppers = [];
+for (const s of SIDES) {
+  const d = document.createElement("span"); d.className = "die"; d.textContent = s === 100 ? "d100" : "d" + s;
+  const p = stepper(s, "plus"), m = stepper(s, "minus");
+  steppers.push(p, m);
+  $("dice").append(d, p, m);
+}
+
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => { state.mode = b.dataset.mode; render(); });
+
+// ---- bonuses
+function renderBonuses() {
+  const box = $("bonuses");
+  box.replaceChildren();
+  if (!state.bonuses.length) {
+    const p = document.createElement("div"); p.className = "empty"; p.textContent = "아래에서 상태 효과를 추가하세요. 켜 둔 것만 모두 더해져요.";
+    box.append(p);
+  }
+  state.bonuses.forEach((b, i) => {
+    const row = document.createElement("label"); row.className = "bonus" + (b.on ? "" : " off");
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = b.on;
+    cb.onchange = () => { b.on = cb.checked; render(); };
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = b.name;
+    const ex = document.createElement("span"); ex.className = "ex"; ex.textContent = formatTerms(parseExpr(b.expr) || []) || b.expr;
+    const x = document.createElement("button"); x.type = "button"; x.className = "x"; x.textContent = "×";
+    x.setAttribute("aria-label", `${b.name} 삭제`);
+    x.onclick = e => { e.preventDefault(); state.bonuses.splice(i, 1); render(); };
+    row.append(cb, nm, ex, x);
+    box.append(row);
+  });
+}
+$("addForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const name = $("bName").value.trim(), expr = $("bExpr").value.trim();
+  if (!name) { $("bErr").textContent = "이름을 적어 주세요."; $("bName").focus(); return; }
+  if (!parseExpr(expr)) { $("bErr").textContent = "값은 +2, -1, +1d4, -1d6+1 같은 형식으로 적어 주세요."; $("bExpr").focus(); return; }
+  $("bErr").textContent = "";
+  state.bonuses.push({ name, expr, on: true });
+  $("bName").value = ""; $("bExpr").value = "";
+  render(); $("bName").focus();
+});
+
+// ---- inputs
+$("flat").oninput = () => { state.flat = parseInt($("flat").value, 10) || 0; render(false); };
+$("target").oninput = () => { state.target = $("target").value; save(); };
+$("rule").onchange = () => { state.rule = $("rule").value; save(); };
+$("label").oninput = () => { state.label = $("label").value; save(); };
+$("secret").onchange = () => { state.secret = $("secret").checked; save(); };
+$("resetBtn").onclick = () => {
+  for (const s of SIDES) state.pool[s] = { plus: 0, minus: 0 };
+  state.flat = 0; state.mode = "normal";
+  render();
+};
+
+// ---- formula preview
+function formula() {
+  const terms = [];
+  for (const s of SIDES) if (state.pool[s].plus) terms.push({ sign: 1, count: state.pool[s].plus, sides: s });
+  for (const s of SIDES) if (state.pool[s].minus) terms.push({ sign: -1, count: state.pool[s].minus, sides: s });
+  for (const b of state.bonuses.filter(b => b.on)) terms.push(...(parseExpr(b.expr) || []));
+  if (state.flat) terms.push({ sign: Math.sign(state.flat), flat: Math.abs(state.flat) });
+  return terms;
+}
+
+function render(full = true) {
+  steppers.forEach(s => s.update());
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === state.mode));
+  if (full) renderBonuses();
+  const terms = formula();
+  const on = state.bonuses.filter(b => b.on);
+  $("bonusSum").textContent = on.length ? `${on.length}개 적용 중` : "";
+  const mode = state.mode !== "normal" && state.pool[20].plus ? (state.mode === "adv" ? " (d20 유리)" : " (d20 불리)") : "";
+  $("formula").textContent = terms.length ? "굴릴 식: " + formatTerms(terms) + mode : "주사위나 보너스를 하나 이상 넣어 주세요.";
+  $("rollBtn").disabled = !terms.length;
+  save();
+}
+
+// ---- results
+function verdictClass(r) {
+  if (r.crit === "대성공") return "crit";
+  if (r.crit === "대실패" || r.verdict === "실패") return "bad";
+  return r.verdict === "성공" ? "ok" : "";
+}
+function showResult(r) {
+  const box = $("result"); box.hidden = false; box.replaceChildren();
+  const top = document.createElement("div"); top.className = "top";
+  const t = document.createElement("span"); t.className = "total"; t.textContent = r.total;
+  top.append(t);
+  const vt = verdictText(r);
+  if (vt) { const v = document.createElement("span"); v.className = "verdict " + verdictClass(r); v.textContent = vt; top.append(v); }
+  const lb = document.createElement("div"); lb.className = "note"; lb.textContent = (r.label ? r.label + " · " : "") + (r.secret ? "나만 보기" : OBR ? "모두에게 공유됨" : "이 브라우저에만 기록됨");
+  const d = document.createElement("div"); d.className = "detail"; d.textContent = describe(r);
+  box.append(lb, top, d);
+  r.bonuses.filter(b => /d/.test(b.detail)).forEach(b => {
+    const x = document.createElement("div"); x.className = "detail"; x.textContent = `${b.name}: ${b.detail}`; box.append(x);
+  });
+}
+function renderHistory() {
+  const list = readHistory(roomId);
+  const box = $("hist"); box.replaceChildren();
+  if (!list.length) { const p = document.createElement("div"); p.className = "empty"; p.textContent = "아직 굴린 기록이 없어요."; box.append(p); return; }
+  for (const r of list) {
+    const row = document.createElement("div"); row.className = "h";
+    const who = document.createElement("div"); who.className = "who";
+    const dot = document.createElement("i"); dot.style.background = r.playerColor || "var(--accent)";
+    who.append(dot, document.createTextNode(`${r.playerName || "?"}${r.label ? " · " + r.label : ""}${r.secret ? " 🔒" : ""}`));
+    const sum = document.createElement("div"); sum.className = "sum"; sum.textContent = r.total;
+    const d = document.createElement("div"); d.className = "detail"; d.textContent = describe(r);
+    row.append(who, sum, d);
+    const vt = verdictText(r);
+    if (vt) { const v = document.createElement("div"); v.className = "vd verdict " + verdictClass(r); v.textContent = vt; row.append(v); }
+    box.append(row);
+  }
+}
+window.addEventListener("storage", e => { if (e.key === historyKey(roomId)) renderHistory(); });
+
+$("rollBtn").onclick = async () => {
+  const r = roll(state);
+  Object.assign(r, { playerName: me.name, playerColor: me.color, secret: !!state.secret });
+  pushHistory(roomId, r);
+  showResult(r); renderHistory();
+  if (OBR && !state.secret) {
+    try { await OBR.broadcast.sendMessage(CHANNEL, { playerId: me.id, playerName: me.name, record: r }, { destination: "REMOTE" }); }
+    catch (e) { $("result").append(Object.assign(document.createElement("div"), { className: "err", textContent: "다른 사람에게 공유하지 못했어요." })); }
+  }
+};
+
+// ---- boot
+$("flat").value = state.flat; $("target").value = state.target; $("rule").value = state.rule;
+$("label").value = state.label; $("secret").checked = state.secret;
+render(); renderHistory();
+$("where").textContent = "Owlbear 연결 중…";
+
+OBR = await loadOBR();
+if (OBR) {
+  roomId = OBR.room.id;
+  me = { id: await OBR.player.getId(), name: await OBR.player.getName(), color: await OBR.player.getColor() };
+  OBR.player.onChange(p => { me.name = p.name; me.color = p.color; });
+  OBR.broadcast.onMessage(CHANNEL, ({ data }) => { if (data?.record) { pushHistory(roomId, data.record); renderHistory(); } });
+  try {
+    const applyTheme = t => document.documentElement.dataset.mode = t.mode;
+    applyTheme(await OBR.theme.getTheme()); OBR.theme.onChange(applyTheme);
+  } catch (e) {}
+  $("where").textContent = "방 전체";
+  renderHistory();
+} else {
+  $("where").textContent = "Owlbear 밖 (이 브라우저만)";
+}
+</script>
+</body>
+</html>
