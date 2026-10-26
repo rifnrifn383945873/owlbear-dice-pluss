@@ -63,6 +63,18 @@ input[type=number] { width: 64px; }
 .err { color: var(--bad); font-size: 12px; min-height: 0; }
 .empty { color: var(--muted); font-size: 12px; }
 
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
+.stat { display: grid; grid-template-columns: minmax(0, 1fr) 92px auto; gap: 4px; align-items: center; }
+.stat .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat .nm small { color: var(--muted); font-size: 11px; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.stat .step { grid-template-columns: 22px 1fr 22px; }
+.stat .step input { width: 100%; border: 0; background: transparent; text-align: center; font-weight: 600; padding: 0; -moz-appearance: textfield; }
+.stat .step input::-webkit-inner-spin-button { display: none; }
+.stat .x { border: 0; background: transparent; color: var(--muted); font-size: 14px; padding: 0 2px; }
+.stat .x:hover { color: var(--bad); }
+.statadd { display: grid; grid-template-columns: 1fr 64px auto; gap: 6px; }
+@media (max-width: 340px) { .stats { grid-template-columns: 1fr; } }
+
 .formula { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); word-break: break-word; }
 .actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .roll { border: 0; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 15px; padding: 10px; }
@@ -103,12 +115,23 @@ input[type=number] { width: 64px; }
   </div>
 </section>
 
+<section aria-labelledby="t-stats">
+  <h2 id="t-stats"><span>능력치</span><small>게임 중 언제든 바꾸면 다음 굴림부터 적용</small></h2>
+  <div class="stats" id="stats"></div>
+  <form class="statadd" id="statForm" autocomplete="off">
+    <input type="text" id="sName" placeholder="능력치 이름 (예: 숙련)" maxlength="12" aria-label="능력치 이름">
+    <input type="number" id="sValue" placeholder="값" aria-label="능력치 값">
+    <button type="submit" class="ghost">추가</button>
+  </form>
+  <div class="err" id="sErr" role="alert"></div>
+</section>
+
 <section aria-labelledby="t-bonus">
   <h2 id="t-bonus"><span>상태 보너스</span><small id="bonusSum"></small></h2>
   <div class="bonuses" id="bonuses"></div>
   <form class="add" id="addForm" autocomplete="off">
     <input type="text" id="bName" placeholder="이름 (예: 축복)" maxlength="20" aria-label="보너스 이름">
-    <input type="text" id="bExpr" placeholder="+1d4, -2" maxlength="24" aria-label="보너스 값">
+    <input type="text" id="bExpr" placeholder="+1d4, -2, +@숙련" maxlength="24" aria-label="보너스 값">
     <button type="submit" class="ghost">추가</button>
   </form>
   <div class="err" id="bErr" role="alert"></div>
@@ -121,6 +144,15 @@ input[type=number] { width: 64px; }
 <section aria-labelledby="t-check">
   <h2 id="t-check"><span>판정</span></h2>
   <div class="row">
+    <label for="useStat">능력치</label>
+    <select id="useStat" aria-label="적용할 능력치"></select>
+    <select id="statMode" aria-label="능력치 적용 방식">
+      <option value="mod">보정치로 더하기 (D&amp;D)</option>
+      <option value="raw">값 그대로 더하기</option>
+      <option value="target">목표값으로 쓰기 (CoC)</option>
+    </select>
+  </div>
+  <div class="row" id="targetRow">
     <label for="target">목표값</label>
     <input type="number" id="target" placeholder="없음">
     <select id="rule" aria-label="성공 조건">
@@ -149,7 +181,7 @@ input[type=number] { width: 64px; }
 </section>
 
 <script type="module">
-import { loadOBR, CHANNEL, SIDES, parseExpr, formatTerms, roll, describe, verdictText, readHistory, pushHistory, historyKey } from "./shared.js";
+import { loadOBR, CHANNEL, SIDES, parseExpr, formatTerms, roll, describe, verdictText, readHistory, pushHistory, historyKey, statMod, statMap } from "./shared.js?v=1.0.2";
 
 const $ = id => document.getElementById(id);
 const PREF = "dicePlus:setup";
@@ -162,6 +194,8 @@ const DEFAULT_BONUSES = [
 const state = {
   pool: Object.fromEntries(SIDES.map(s => [s, { plus: s === 20 ? 1 : 0, minus: 0 }])),
   mode: "normal", flat: 0, bonuses: DEFAULT_BONUSES, target: "", rule: "ge", label: "", secret: false,
+  stats: ["힘", "민첩", "건강", "지능", "지혜", "매력"].map(name => ({ name, value: 10 })),
+  useStat: "", statMode: "mod",
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem(PREF) || "{}")); } catch (e) {}
 for (const s of SIDES) state.pool[s] = { plus: 0, minus: 0, ...(state.pool[s] || {}) };
@@ -196,6 +230,49 @@ for (const s of SIDES) {
 
 document.querySelectorAll(".seg button").forEach(b => b.onclick = () => { state.mode = b.dataset.mode; render(); });
 
+// ---- stats (editable any time; rolls read the current values)
+const signed = n => (n < 0 ? "−" : "+") + Math.abs(n);
+const statHint = v => state.statMode === "mod" ? signed(statMod(v)) : "";
+function renderStats() {
+  const box = $("stats");
+  box.replaceChildren();
+  state.stats.forEach((s, i) => {
+    const row = document.createElement("div"); row.className = "stat";
+    const nm = document.createElement("span"); nm.className = "nm"; nm.title = s.name;
+    const hint = document.createElement("small");
+    nm.append(document.createTextNode(s.name), hint);
+    const step = document.createElement("div"); step.className = "step";
+    const dec = document.createElement("button"); dec.type = "button"; dec.textContent = "−"; dec.setAttribute("aria-label", `${s.name} 1 줄이기`);
+    const inp = document.createElement("input"); inp.type = "number"; inp.value = s.value; inp.setAttribute("aria-label", `${s.name} 값`);
+    const inc = document.createElement("button"); inc.type = "button"; inc.textContent = "+"; inc.setAttribute("aria-label", `${s.name} 1 늘리기`);
+    const sync = () => { hint.textContent = statHint(s.value); inp.value = s.value; render(false); };
+    dec.onclick = () => { s.value = (Number(s.value) || 0) - 1; sync(); };
+    inc.onclick = () => { s.value = (Number(s.value) || 0) + 1; sync(); };
+    inp.oninput = () => { s.value = parseInt(inp.value, 10) || 0; hint.textContent = statHint(s.value); render(false); };
+    step.append(dec, inp, inc);
+    const x = document.createElement("button"); x.type = "button"; x.className = "x"; x.textContent = "×"; x.setAttribute("aria-label", `${s.name} 삭제`);
+    x.onclick = () => { state.stats.splice(i, 1); if (state.useStat === s.name) state.useStat = ""; render(); };
+    hint.textContent = statHint(s.value);
+    row.append(nm, step, x);
+    box.append(row);
+  });
+  const sel = $("useStat");
+  sel.replaceChildren(new Option("안 씀", ""), ...state.stats.map(s => new Option(s.name, s.name)));
+  sel.value = state.stats.some(s => s.name === state.useStat) ? state.useStat : "";
+}
+$("statForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const name = $("sName").value.trim().replace(/[\s+\-@]/g, "");
+  if (!name) { $("sErr").textContent = "이름을 적어 주세요. 띄어쓰기와 + - @는 쓸 수 없어요."; $("sName").focus(); return; }
+  if (state.stats.some(s => s.name.toLowerCase() === name.toLowerCase())) { $("sErr").textContent = "이미 있는 이름이에요."; $("sName").focus(); return; }
+  $("sErr").textContent = "";
+  state.stats.push({ name, value: parseInt($("sValue").value, 10) || 0 });
+  $("sName").value = ""; $("sValue").value = "";
+  render(); $("sName").focus();
+});
+$("useStat").onchange = () => { state.useStat = $("useStat").value; render(false); };
+$("statMode").onchange = () => { state.statMode = $("statMode").value; render(); };
+
 // ---- bonuses
 function renderBonuses() {
   const box = $("bonuses");
@@ -221,7 +298,11 @@ $("addForm").addEventListener("submit", e => {
   e.preventDefault();
   const name = $("bName").value.trim(), expr = $("bExpr").value.trim();
   if (!name) { $("bErr").textContent = "이름을 적어 주세요."; $("bName").focus(); return; }
-  if (!parseExpr(expr)) { $("bErr").textContent = "값은 +2, -1, +1d4, -1d6+1 같은 형식으로 적어 주세요."; $("bExpr").focus(); return; }
+  const terms = parseExpr(expr);
+  if (!terms) { $("bErr").textContent = "값은 +2, -1, +1d4, -1d6+1, +@숙련 같은 형식으로 적어 주세요."; $("bExpr").focus(); return; }
+  const known = statMap(state.stats);
+  const missing = terms.find(t => "stat" in t && !(t.stat in known));
+  if (missing) { $("bErr").textContent = `'${missing.stat}' 능력치가 없어요. 위 능력치 목록에 먼저 추가해 주세요.`; $("bExpr").focus(); return; }
   $("bErr").textContent = "";
   state.bonuses.push({ name, expr, on: true });
   $("bName").value = ""; $("bExpr").value = "";
@@ -245,7 +326,20 @@ function formula() {
   const terms = [];
   for (const s of SIDES) if (state.pool[s].plus) terms.push({ sign: 1, count: state.pool[s].plus, sides: s });
   for (const s of SIDES) if (state.pool[s].minus) terms.push({ sign: -1, count: state.pool[s].minus, sides: s });
-  for (const b of state.bonuses.filter(b => b.on)) terms.push(...(parseExpr(b.expr) || []));
+  const stats = statMap(state.stats);
+  const s = state.stats.find(x => x.name === state.useStat);
+  if (s && state.statMode !== "target") {
+    const add = state.statMode === "raw" ? Number(s.value) || 0 : statMod(Number(s.value) || 0);
+    terms.push({ sign: add < 0 ? -1 : 1, flat: Math.abs(add), label: s.name });
+  }
+  for (const b of state.bonuses.filter(b => b.on)) {
+    for (const t of parseExpr(b.expr) || []) {
+      // Show stat references with their current value, e.g. "숙련(2)"
+      if (!("stat" in t)) { terms.push(t); continue; }
+      const v = stats[t.stat] ?? 0;
+      terms.push({ sign: t.sign * (v < 0 ? -1 : 1), flat: Math.abs(v), label: t.stat });
+    }
+  }
   if (state.flat) terms.push({ sign: Math.sign(state.flat), flat: Math.abs(state.flat) });
   return terms;
 }
@@ -253,12 +347,17 @@ function formula() {
 function render(full = true) {
   steppers.forEach(s => s.update());
   document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === state.mode));
-  if (full) renderBonuses();
+  if (full) { renderStats(); renderBonuses(); }
+  $("statMode").value = state.statMode;
   const terms = formula();
   const on = state.bonuses.filter(b => b.on);
   $("bonusSum").textContent = on.length ? `${on.length}개 적용 중` : "";
   const mode = state.mode !== "normal" && state.pool[20].plus ? (state.mode === "adv" ? " (d20 유리)" : " (d20 불리)") : "";
-  $("formula").textContent = terms.length ? "굴릴 식: " + formatTerms(terms) + mode : "주사위나 보너스를 하나 이상 넣어 주세요.";
+  const s = state.stats.find(x => x.name === state.useStat);
+  const byStat = s && state.statMode === "target";
+  $("targetRow").style.opacity = byStat ? .45 : 1;
+  const goal = byStat ? ` → ${s.name} ${s.value} 이하면 성공` : "";
+  $("formula").textContent = terms.length ? "굴릴 식: " + formatTerms(terms) + mode + goal : "주사위나 보너스를 하나 이상 넣어 주세요.";
   $("rollBtn").disabled = !terms.length;
   save();
 }

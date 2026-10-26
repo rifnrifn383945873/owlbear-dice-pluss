@@ -1,6 +1,6 @@
 {
   "name": "주사위+ (상태 보너스 판정)",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "manifest_version": 1,
   "description": "주사위를 더하거나 빼고, 상태 보너스를 켜고 끄며 중첩하고, 목표값으로 성공·실패를 판정합니다.",
   "icon": "https://rifnrifn383945873.github.io/owlbear-dice-pluss/icon.svg",

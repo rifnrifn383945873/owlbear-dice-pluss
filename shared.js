@@ -27,12 +27,15 @@ function randInt(max) {
   return (buf[0] % max) + 1;
 }
 
-// "+1d4", "-2", "1d6+1", "-1d4 + 3" → [{sign, count, sides}|{sign, flat}]
+// D&D-style ability modifier: 10 → 0, 16 → +3, 7 → −2
+export const statMod = v => Math.floor((v - 10) / 2);
+
+// "+1d4", "-2", "1d6+1", "-1d4 + 3", "+@힘" → [{sign, count, sides}|{sign, flat}|{sign, stat}]
 export function parseExpr(text) {
   const src = String(text).replace(/\s+/g, "").toLowerCase();
   if (!src) return null;
   const terms = [];
-  const re = /([+-]?)(?:(\d*)d(\d+)|(\d+))/gy;
+  const re = /([+-]?)(?:(\d*)d(\d+)|(\d+)|@([^+\-@]+))/gy;
   let m;
   while (re.lastIndex < src.length) {
     m = re.exec(src);
@@ -42,7 +45,8 @@ export function parseExpr(text) {
       const count = m[2] ? +m[2] : 1, sides = +m[3];
       if (count < 1 || count > 50 || sides < 2 || sides > 1000) return null;
       terms.push({ sign, count, sides });
-    } else terms.push({ sign, flat: +m[4] });
+    } else if (m[5]) terms.push({ sign, stat: m[5] });
+    else terms.push({ sign, flat: +m[4] });
   }
   return terms.length ? terms : null;
 }
@@ -50,7 +54,7 @@ export function parseExpr(text) {
 export function formatTerms(terms) {
   return terms.map((t, i) => {
     const sign = t.sign < 0 ? "−" : i ? "+" : "";
-    const body = "flat" in t ? t.flat : `${t.count}d${t.sides}`;
+    const body = "stat" in t ? "@" + t.stat : "flat" in t ? (t.label ? `${t.label}(${t.flat})` : t.flat) : `${t.count}d${t.sides}`;
     return (i ? ` ${sign} ` : sign) + body;
   }).join("");
 }
@@ -90,6 +94,23 @@ export function roll(setup) {
     }
   }
 
+  // Stats are read at roll time, so changing a stat mid-game applies to the next roll
+  const stats = statMap(setup.stats);
+  let stat = null;
+  let target = setup.target === "" || setup.target == null ? null : Number(setup.target);
+  let rule = setup.rule;
+  const picked = setup.useStat ? setup.useStat.toLowerCase() : "";
+  if (picked && picked in stats) {
+    const value = stats[picked];
+    const name = setup.stats.find(s => s.name.toLowerCase() === picked).name;
+    if (setup.statMode === "target") { target = value; rule = "le"; stat = { name, value, add: 0, mode: "target" }; }
+    else {
+      const add = setup.statMode === "raw" ? value : statMod(value);
+      total += add;
+      stat = { name, value, add, mode: setup.statMode };
+    }
+  }
+
   const used = [];
   for (const b of setup.bonuses.filter(b => b.on)) {
     const terms = parseExpr(b.expr);
@@ -97,6 +118,7 @@ export function roll(setup) {
     let sum = 0;
     const values = [];
     for (const t of terms) {
+      if ("stat" in t) { const v = stats[t.stat] ?? 0; sum += t.sign * v; values.push(`${t.sign < 0 ? "−" : "+"}${t.stat}(${v})`); continue; }
       if ("flat" in t) { sum += t.sign * t.flat; values.push((t.sign < 0 ? "−" : "+") + t.flat); continue; }
       const rolled = Array.from({ length: t.count }, () => randInt(t.sides));
       const s = rolled.reduce((a, v) => a + v, 0);
@@ -111,9 +133,8 @@ export function roll(setup) {
   total += flat;
 
   let verdict = null;
-  const target = setup.target === "" || setup.target == null ? null : Number(setup.target);
-  if (target != null && !Number.isNaN(target) && setup.rule !== "none") {
-    const ok = setup.rule === "le" ? total <= target : total >= target;
+  if (target != null && !Number.isNaN(target) && rule !== "none") {
+    const ok = rule === "le" ? total <= target : total >= target;
     verdict = ok ? "성공" : "실패";
   }
   let crit = null;
@@ -125,8 +146,13 @@ export function roll(setup) {
     at: Date.now(),
     label: (setup.label || "").slice(0, 40),
     mode: setup.mode,
-    parts, bonuses: used, flat, total, target, rule: setup.rule, verdict, crit,
+    parts, stat, bonuses: used, flat, total, target, rule, verdict, crit,
   };
+}
+
+// [{name, value}] → {lowercased name: number}
+export function statMap(list) {
+  return Object.fromEntries((list || []).map(s => [String(s.name).toLowerCase(), Number(s.value) || 0]));
 }
 
 export function describe(r) {
@@ -135,6 +161,7 @@ export function describe(r) {
     const sign = p.sign < 0 ? "−" : i ? "+" : "";
     bits.push(`${i ? ` ${sign} ` : sign}${p.label}[${p.values.join(",")}]`);
   });
+  if (r.stat && r.stat.mode !== "target") bits.push(` ${r.stat.add < 0 ? "−" : "+"} ${r.stat.name}${r.stat.mode === "mod" ? `(${r.stat.value})` : ""} ${Math.abs(r.stat.add)}`);
   for (const b of r.bonuses) bits.push(` ${b.sum < 0 ? "−" : "+"} ${b.name} ${Math.abs(b.sum)}`);
   if (r.flat) bits.push(` ${r.flat < 0 ? "−" : "+"} ${Math.abs(r.flat)}`);
   return bits.join("").trim();
@@ -143,7 +170,8 @@ export function describe(r) {
 export function verdictText(r) {
   const out = [];
   if (r.crit) out.push(r.crit);
-  if (r.verdict) out.push(`${r.verdict} (목표 ${r.target}${r.rule === "le" ? " 이하" : " 이상"})`);
+  const by = r.stat?.mode === "target" ? `${r.stat.name} ` : "";
+  if (r.verdict) out.push(`${r.verdict} (목표 ${by}${r.target}${r.rule === "le" ? " 이하" : " 이상"})`);
   return out.join(" · ");
 }
 
